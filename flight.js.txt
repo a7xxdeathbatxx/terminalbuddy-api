@@ -1,0 +1,64 @@
+﻿// api/flight.js
+export default async function handler(req, res) {
+  // Basic CORS (so your Expo app can call it)
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
+
+  try {
+    const flight = (req.query.flight || "").toString().trim().toUpperCase();
+    if (!flight) {
+      return res.status(400).json({ error: "Missing ?flight=AA123" });
+    }
+
+    // ✅ Put your provider key in Vercel as an ENV VAR:
+    // AVIATIONSTACK_KEY = your_key_here
+    const key = process.env.AVIATIONSTACK_KEY;
+    if (!key) {
+      return res.status(500).json({ error: "Server missing AVIATIONSTACK_KEY env var" });
+    }
+
+    // Provider call (Aviationstack example)
+    const url =
+      `https://api.aviationstack.com/v1/flights?access_key=${encodeURIComponent(key)}` +
+      `&flight_iata=${encodeURIComponent(flight)}`;
+
+    const r = await fetch(url);
+    const j = await r.json();
+
+    if (!r.ok) {
+      return res.status(502).json({ error: "Provider error", details: j });
+    }
+
+    const first = j?.data?.[0];
+    if (!first) {
+      return res.status(404).json({ error: "Flight not found", flight });
+    }
+
+    // Pull fields (these names match Aviationstack’s typical format)
+    const dep = first?.departure || {};
+    const arr = first?.arrival || {};
+    const airline = first?.airline?.name;
+
+    // Return a clean shape your app expects
+    return res.status(200).json({
+      flightNumber: flight,
+      airline: airline || undefined,
+      status: first?.flight_status || undefined,
+
+      depAirport: dep?.iata || undefined,
+      arrAirport: arr?.iata || undefined,
+
+      depTimeLocal: dep?.estimated || dep?.scheduled || undefined,
+
+      terminal: dep?.terminal || undefined,
+      gate: dep?.gate || undefined,
+
+      baggageClaim: arr?.baggage || undefined,
+      lastUpdated: new Date().toISOString(),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: "Server crashed", details: String(err) });
+  }
+}
